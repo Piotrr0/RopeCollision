@@ -8,9 +8,11 @@
 #include "GameFramework/Controller.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "EnhancedInputComponent.h"
+#include "RopeInstance.h"
 #include "EnhancedInputSubsystems.h"
 #include "Kismet/KismetMathLibrary.h"
-#include "Components/SplineMeshComponent.h"
+#include "Kismet/GameplayStatics.h"
+#include "RopeInstance.h"
 
 //////////////////////////////////////////////////////////////////////////
 // ARopeCharacter
@@ -47,8 +49,6 @@ ARopeCharacter::ARopeCharacter()
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName); // Attach the camera to the end of the boom and let the boom adjust to match the controller orientation
 	FollowCamera->bUsePawnControlRotation = false; // Camera does not rotate relative to arm
-
-	Rope = CreateDefaultSubobject<USplineMeshComponent>(TEXT("Rope"));
 
 	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
@@ -100,7 +100,7 @@ void ARopeCharacter::Tick(float DeltaTime)
 
 	UpdateHookLocation();
 	NoLongerAttachedToRope();
-	SpawnRope();
+	UpdateRope(DeltaTime);
 }
 
 void ARopeCharacter::Move(const FInputActionValue& Value)
@@ -171,6 +171,15 @@ void ARopeCharacter::FireRope()
 	bRopeHit = bHit;
 	if (HitResult.bBlockingHit)
 	{
+		auto RopeRef = Cast<ARopeInstance>(SpawnRope());
+		if (RopeRef)
+		{
+			UE_LOG(LogTemp, Warning, TEXT("RopeRefSpawned"));
+			RopeParts.Add(RopeRef);
+		}
+
+	
+	
 		HitLocation = HitResult.ImpactPoint;
 
 		RopePoints.AddUnique(HitResult.ImpactPoint);
@@ -181,7 +190,7 @@ void ARopeCharacter::FireRope()
 	}
 	else
 	{
-		HitResult.TraceEnd;
+	HitResult.TraceEnd;
 	}
 }
 
@@ -192,11 +201,26 @@ void ARopeCharacter::ReleaseRope()
 	RopePointsNormals.Empty();
 	RopePointsTangents.Empty();
 
+	for (AActor* Element : RopeParts)
+	{
+		if (Element)
+		{
+			Element->Destroy();
+		}
+	}
+	RopeParts.Empty();
+
 }
 
-void ARopeCharacter::SpawnRope()
+AActor* ARopeCharacter::SpawnRope()
 {
-	//Spawn Rope
+	FTransform BaseTransform = FTransform(FQuat::Identity, FVector::ZeroVector, FVector(1, 1, 1));
+	auto NewRope = UGameplayStatics::BeginDeferredActorSpawnFromClass(GetWorld(), Rope, BaseTransform);
+	if (NewRope)
+	{
+		return UGameplayStatics::FinishSpawningActor(NewRope, BaseTransform);
+	}
+	return nullptr;
 }
 
 void ARopeCharacter::UpdateHookLocation()
@@ -206,14 +230,12 @@ void ARopeCharacter::UpdateHookLocation()
 		FVector SocketLocation = GetSocketTransfrom(FName("RopeSocket")).GetLocation();
 		FVector End = UKismetMathLibrary::VLerp(SocketLocation, GetRopeLocation(), 0.99f);
 
-		//DrawDebugLine(GetWorld(), SocketLocation, End, FColor::Red, false, 1.f, 0, 1.0f);
 
 		FHitResult HitResult;
 		GetWorld()->LineTraceSingleByChannel(HitResult, SocketLocation, End, ECollisionChannel::ECC_Visibility);
 		if (HitResult.bBlockingHit)
 		{
 			FHitResult SecondHitResult;
-			//DrawDebugLine(GetWorld(), GetRopeLocation(), SocketLocation, FColor::Blue, false, 2.f, 0, 3.0f);
 			GetWorld()->LineTraceSingleByChannel(SecondHitResult, GetRopeLocation(), SocketLocation, ECollisionChannel::ECC_Visibility);
 
 			FVector RopePointOffset = UKismetMathLibrary::VLerp(HitResult.ImpactNormal, RopePointsNormals.Last(), 0.5f);
@@ -225,6 +247,8 @@ void ARopeCharacter::UpdateHookLocation()
 			RopePoints.AddUnique(HitPoint);
 			RopePointsNormals.Add(Normal);
 			RopePointsTangents.Add(Tangent);
+
+			HandleNewBlockPoint();
 		}
 	}
 }
@@ -243,12 +267,49 @@ void ARopeCharacter::NoLongerAttachedToRope()
 		GetWorld()->LineTraceSingleByChannel(HitResult, SocketLocation, End, ECollisionChannel::ECC_Visibility);
 		if (!HitResult.bBlockingHit)
 		{
-			RopePoints.RemoveAt(RopePoints.Num() - 1);
-			RopePointsNormals.RemoveAt(RopePointsNormals.Num() - 1);
-			RopePointsTangents.RemoveAt(RopePointsTangents.Num() - 1);
+			int32 index = RopePoints.Num() - 1;
+
+			RopePoints.RemoveAt(index);
+			RopePointsNormals.RemoveAt(index);
+			RopePointsTangents.RemoveAt(index);
+
+			FreeRopePart();
 		}
 	}
 }
+
+void ARopeCharacter::HandleNewBlockPoint()
+{
+	auto* RopeRef = Cast<ARopeInstance>(SpawnRope());
+	RopeParts.Add(RopeRef);
+
+}
+
+void ARopeCharacter::FreeRopePart()
+{
+	if (RopeParts.Last())
+	{
+		RopeParts.Last()->Destroy();
+		RopeParts.RemoveAt(RopeParts.Num()-1);
+	}
+}
+
+void ARopeCharacter::UpdateRope(float DeltaTime)
+{
+	if (!bRopeHit) return;
+
+	TArray<FVector> Locations = RopePoints;
+	Locations.Add(GetSocketTransfrom(FName("RopeSocket")).GetLocation());
+
+	for (size_t i = 0; i <= Locations.Num() - 2; i++)
+	{
+		if (RopeParts[i])
+		{
+			RopeParts[i]->SetRopeTransfrom(Locations[i], Locations[i+1]);
+		}
+	}
+}
+
 
 
 

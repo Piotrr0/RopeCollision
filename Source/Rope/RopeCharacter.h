@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "RopeInstance.h"
 #include "InputActionValue.h"
 #include "RopeCharacter.generated.h"
 
@@ -61,12 +62,17 @@ protected:
 
 	void ReleaseRope();
 
-	void SpawnRope();
-			
+	AActor* SpawnRope();
+		
 	void UpdateHookLocation();
 
 	void NoLongerAttachedToRope();
 
+	void HandleNewBlockPoint();
+
+	void FreeRopePart();
+
+	void UpdateRope(float DeltaTime);
 
 
 protected:
@@ -94,8 +100,12 @@ private:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Rope, meta = (AllowPrivateAccess = "true"))
 	TArray<FVector> RopePointsTangents;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Rope, meta = (AllowPrivateAccess = "true"))
+	TSubclassOf<ARopeInstance> Rope;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Rope, meta = (AllowPrivateAccess = "true"))
-	class USplineMeshComponent* Rope;
+	TArray<ARopeInstance*> RopeParts;
+
 
 public:
 	/** Returns CameraBoom subobject **/
