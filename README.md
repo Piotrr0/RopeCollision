@@ -1,4 +1,4 @@
-#  Rope Collision and Retraction
+#  Rope Collision
 <a href="https://www.youtube.com/watch?v=Esdh_LrxjG4">Preview
 <h1> Set up </h1>
 <p> To change rope start position change Rope Socket Location</p>
