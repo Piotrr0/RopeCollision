@@ -64,7 +64,7 @@ protected:
 
 	AActor* SpawnRope();
 		
-	void UpdateHookLocation();
+	void CheckIfRopeBlockPoint();
 
 	void NoLongerAttachedToRope();
 
@@ -72,8 +72,9 @@ protected:
 
 	void FreeRopePart();
 
-	void UpdateRope(float DeltaTime);
+	void UpdateRope();
 
+	void CalculateRemainingRope();
 
 protected:
 	// APawn interface
@@ -85,6 +86,9 @@ protected:
 	virtual void Tick(float DeltaTime) override;
 
 private:
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Movement, meta = (AllowPrivateAccess = "true"))
+	FVector MovementDirection;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Rope, meta = (AllowPrivateAccess = "true"))
 	FVector HitLocation;
 
@@ -105,6 +109,20 @@ private:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Rope, meta = (AllowPrivateAccess = "true"))
 	TArray<ARopeInstance*> RopeParts;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Rope, meta = (AllowPrivateAccess = "true"))
+	TArray<float> RopePartsLengths;
+	
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = Rope, meta = (AllowPrivateAccess = "true"))
+	float RopeLength;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Rope, meta = (AllowPrivateAccess = "true"))
+	float CurrentRopePartLength;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Rope, meta = (AllowPrivateAccess = "true"))
+	float CurrentRopeLength;
+
+
 
 
 public:

@@ -13,11 +13,15 @@
 #include "Kismet/KismetMathLibrary.h"
 #include "Kismet/GameplayStatics.h"
 #include "RopeInstance.h"
+#include "GameFramework/PlayerController.h"
 
 //////////////////////////////////////////////////////////////////////////
 // ARopeCharacter
 
-ARopeCharacter::ARopeCharacter()
+ARopeCharacter::ARopeCharacter() :
+	RopeLength(3000.f),
+	CurrentRopeLength(0.f),
+	CurrentRopePartLength(0.f)
 {
 	// Set size for collision capsule
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);
@@ -89,18 +93,17 @@ void ARopeCharacter::SetupPlayerInputComponent(class UInputComponent* PlayerInpu
 
 		EnhancedInputComponent->BindAction(FireRopeAction, ETriggerEvent::Started, this, &ARopeCharacter::FireRope);
 		EnhancedInputComponent->BindAction(FireRopeAction, ETriggerEvent::Completed, this, &ARopeCharacter::ReleaseRope);
-
 	}
-
 }
 
 void ARopeCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
-	UpdateHookLocation();
+	CheckIfRopeBlockPoint();
 	NoLongerAttachedToRope();
-	UpdateRope(DeltaTime);
+	UpdateRope();
+	CalculateRemainingRope();
 }
 
 void ARopeCharacter::Move(const FInputActionValue& Value)
@@ -119,6 +122,8 @@ void ARopeCharacter::Move(const FInputActionValue& Value)
 	
 		// get right vector 
 		const FVector RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
+
+		MovementDirection = ForwardDirection * MovementVector.Y + RightDirection * MovementVector.X;
 
 		// add movement 
 		AddMovementInput(ForwardDirection, MovementVector.Y);
@@ -171,6 +176,13 @@ void ARopeCharacter::FireRope()
 	bRopeHit = bHit;
 	if (HitResult.bBlockingHit)
 	{
+		if ((HitResult.ImpactPoint - SocketLocation).Size() > RopeLength)
+		{
+			bRopeHit = false;
+			return;
+		}
+
+
 		auto RopeRef = Cast<ARopeInstance>(SpawnRope());
 		if (RopeRef)
 		{
@@ -178,8 +190,6 @@ void ARopeCharacter::FireRope()
 			RopeParts.Add(RopeRef);
 		}
 
-	
-	
 		HitLocation = HitResult.ImpactPoint;
 
 		RopePoints.AddUnique(HitResult.ImpactPoint);
@@ -190,7 +200,7 @@ void ARopeCharacter::FireRope()
 	}
 	else
 	{
-	HitResult.TraceEnd;
+		HitResult.TraceEnd;
 	}
 }
 
@@ -209,7 +219,13 @@ void ARopeCharacter::ReleaseRope()
 		}
 	}
 	RopeParts.Empty();
+	RopePartsLengths.Empty();
 
+	CurrentRopeLength = 0.f;
+	CurrentRopePartLength = 0.f;
+
+	GetCharacterMovement()->MaxWalkSpeed = 500.f;
+	GetCharacterMovement()->MinAnalogWalkSpeed = 20.f;
 }
 
 AActor* ARopeCharacter::SpawnRope()
@@ -223,7 +239,7 @@ AActor* ARopeCharacter::SpawnRope()
 	return nullptr;
 }
 
-void ARopeCharacter::UpdateHookLocation()
+void ARopeCharacter::CheckIfRopeBlockPoint()
 {
 	if (bRopeHit)
 	{
@@ -280,9 +296,14 @@ void ARopeCharacter::NoLongerAttachedToRope()
 
 void ARopeCharacter::HandleNewBlockPoint()
 {
+	float Dist = FVector::Distance(RopePoints[RopePoints.Num() - 2], RopePoints.Last());
+	CurrentRopePartLength += Dist;
+	CurrentRopeLength += CurrentRopePartLength;
+
+	RopePartsLengths.Add(Dist);
+
 	auto* RopeRef = Cast<ARopeInstance>(SpawnRope());
 	RopeParts.Add(RopeRef);
-
 }
 
 void ARopeCharacter::FreeRopePart()
@@ -292,9 +313,15 @@ void ARopeCharacter::FreeRopePart()
 		RopeParts.Last()->Destroy();
 		RopeParts.RemoveAt(RopeParts.Num()-1);
 	}
+	CurrentRopeLength -= RopePartsLengths.Last();
+	CurrentRopePartLength -= RopePartsLengths.Last();
+
+
+	RopePartsLengths.RemoveAt(RopePartsLengths.Num() - 1);
+
 }
 
-void ARopeCharacter::UpdateRope(float DeltaTime)
+void ARopeCharacter::UpdateRope()
 {
 	if (!bRopeHit) return;
 
@@ -310,7 +337,33 @@ void ARopeCharacter::UpdateRope(float DeltaTime)
 	}
 }
 
+void ARopeCharacter::CalculateRemainingRope()
+{
+	if (RopePoints.Num() > 0)
+	{
+		FVector RopeSocketLocation = GetSocketTransfrom(FName("RopeSocket")).GetLocation();
+		float CurrentDistanceToRopeEnd = FVector::Distance(RopeSocketLocation, RopePoints.Last());
+		CurrentRopeLength = CurrentDistanceToRopeEnd + CurrentRopePartLength;
 
+		if (CurrentRopeLength > RopeLength)
+		{
+			FVector CharacterPosition = RopeSocketLocation;
+			FVector LastRopePoint = RopePoints.Last();
 
+			FVector DirectionToCharacter = (CharacterPosition - LastRopePoint).GetSafeNormal();
 
+			float DotProduct = FVector::DotProduct(DirectionToCharacter, MovementDirection.GetSafeNormal());
+			if (DotProduct >= 0)
+			{
+				GetCharacterMovement()->MaxWalkSpeed = 0.f;
+				GetCharacterMovement()->MinAnalogWalkSpeed = 0.f;
+			}
+			else
+			{
+				GetCharacterMovement()->MaxWalkSpeed = 500.f;
+				GetCharacterMovement()->MinAnalogWalkSpeed = 20.f;
+			}
+		}
+	}
+}
 
